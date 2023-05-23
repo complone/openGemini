@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"reflect"
 	"sort"
 	"strings"
 	"syscall"
@@ -67,6 +68,41 @@ type CommandLineConfig struct {
 	ClientConfig client.Config // Client config options.
 	ImportConfig Config        // Importer configuration options.
 	URL          url.URL
+	Export       ExportConfig // data export
+}
+
+type ExportConfig struct {
+	dataDir   string
+	walDir    string
+	database  string
+	retention string
+	start     time.Duration
+	end       time.Duration
+	compress  bool
+	out       string
+}
+
+func NewExportConfig(config *CommandLineConfig) *ExportConfig {
+
+	if config.Export.IsEmpty() {
+		return &ExportConfig{}
+	}
+
+	export := ExportConfig{
+		dataDir:   config.Export.dataDir,
+		walDir:    config.Export.walDir,
+		database:  config.Export.database,
+		retention: config.Export.retention,
+		start:     config.Export.start,
+		end:       config.Export.end,
+		compress:  config.Export.compress,
+		out:       config.Export.out,
+	}
+	return &export
+}
+
+func (a ExportConfig) IsEmpty() bool {
+	return reflect.DeepEqual(a, ExportConfig{})
 }
 
 type HttpClient interface {

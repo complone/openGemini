@@ -17,12 +17,19 @@ limitations under the License.
 package tsi
 
 import (
+	"fmt"
 	"math"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openGemini/openGemini/engine"
+	"github.com/openGemini/openGemini/lib/netstorage"
+	"github.com/openGemini/openGemini/lib/util"
+	"github.com/openGemini/openGemini/open_src/influx/meta"
 
 	"github.com/influxdata/influxdb/pkg/testing/assert"
 	"github.com/openGemini/openGemini/engine/executor"
@@ -51,6 +58,27 @@ var (
 		"field_str0":   influxql.String,
 	}
 )
+
+var DefaultEngineOption netstorage.EngineOptions
+
+const defaultRp1 = "rp0"
+const defaultDb1 = "db0"
+const defaultShardId1 = uint64(1)
+const defaultPtId1 = uint32(1)
+
+func init() {
+	DefaultEngineOption = netstorage.NewEngineOptions()
+	DefaultEngineOption.WriteColdDuration = time.Second * 5000
+	DefaultEngineOption.ShardMutableSizeLimit = 30 * 1024 * 1024
+	DefaultEngineOption.NodeMutableSizeLimit = 1e9
+	DefaultEngineOption.MaxWriteHangTime = time.Second
+	DefaultEngineOption.MemDataReadEnabled = true
+	DefaultEngineOption.WalSyncInterval = 100 * time.Millisecond
+	DefaultEngineOption.WalEnabled = true
+	DefaultEngineOption.WalReplayParallel = false
+	DefaultEngineOption.WalReplayAsync = false
+	DefaultEngineOption.DownSampleWriteDrop = true
+}
 
 func TestSearchSeries(t *testing.T) {
 	path := t.TempDir()
@@ -954,4 +982,58 @@ func TestSortTagsets(t *testing.T) {
 	}
 	schema := executor.NewQuerySchema(nil, nil, &opt)
 	tagset.Sort(schema)
+}
+
+func TestCreateIndex(t *testing.T) {
+
+	pathName := "/tmp/openGemini"
+	dataPath := pathName + "/data"
+	walPath := pathName + "/wal"
+	lockPath := filepath.Join(dataPath, "LOCK")
+	indexPath := filepath.Join(pathName, defaultDb1, "/index/data")
+	ident := &meta.IndexIdentifier{OwnerDb: defaultDb1, OwnerPt: defaultPtId1, Policy: defaultRp1}
+	ident.Index = &meta.IndexDescriptor{IndexID: 1, IndexGroupID: 2, TimeRange: meta.TimeRangeInfo{}}
+	ltime := uint64(time.Now().Unix())
+	opts := new(Options).
+		Ident(ident).
+		Path(indexPath).
+		IndexType(MergeSet).
+		EndTime(time.Now().Add(time.Hour)).
+		Duration(time.Hour).
+		LogicalClock(1).
+		SequenceId(&ltime).
+		Lock(&lockPath)
+
+	indexBuilder := NewIndexBuilder(opts)
+	primaryIndex, err := NewIndex(opts)
+	if err != nil {
+		fmt.Errorf(err.Error())
+	}
+	primaryIndex.SetIndexBuilder(indexBuilder)
+	indexRelation, err := NewIndexRelation(opts, primaryIndex, indexBuilder)
+	indexBuilder.Relations[uint32(MergeSet)] = indexRelation
+	err = indexBuilder.Open()
+	if err != nil {
+		fmt.Errorf(err.Error())
+	}
+	shardDuration := &meta.DurationDescriptor{Tier: util.Hot, TierDuration: time.Hour}
+	tr := &meta.TimeRangeInfo{StartTime: mustParseTime(time.RFC3339Nano, "1970-01-01T01:00:00Z"),
+		EndTime: mustParseTime(time.RFC3339Nano, "2099-01-01T01:00:00Z")}
+	shardIdent := &meta.ShardIdentifier{ShardID: defaultShardId1, ShardGroupID: 1, OwnerDb: defaultDb1, OwnerPt: defaultPtId1, Policy: defaultRp1}
+	sh := engine.NewShard(dataPath, walPath, &lockPath, shardIdent, shardDuration, tr, DefaultEngineOption)
+	sh.SetIndexBuilder(indexBuilder)
+	if err := sh.OpenAndEnable(nil); err != nil {
+		_ = sh.Close()
+		fmt.Errorf(err.Error())
+	}
+	index, err := NewMergeSetIndex(opts)
+	fmt.Println(index.Path())
+}
+
+func mustParseTime(layout, value string) time.Time {
+	tm, err := time.Parse(layout, value)
+	if err != nil {
+		panic(err)
+	}
+	return tm
 }

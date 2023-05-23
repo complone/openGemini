@@ -21,12 +21,14 @@ import (
 
 	"github.com/influxdata/influxdb/client"
 	"github.com/openGemini/openGemini/app/ts-cli/geminicli"
+	"github.com/spf13/cobra"
 )
 
 // the options of command line are compatible
 // with influx v1.x.
 type CompatibleCommand struct {
 	fs *flag.FlagSet
+	cobra.Command
 }
 
 func NewCompatibleCommand() *CompatibleCommand {
@@ -55,6 +57,11 @@ func (c *CompatibleCommand) Bind(config *geminicli.CommandLineConfig) {
 	c.fs.BoolVar(&config.Import, "import", false, "Import a previous database export from file")
 	c.fs.StringVar(&config.ImportConfig.Path, "path", "", "Path to the file to import to OpenGemini.")
 	c.fs.StringVar(&config.Precision, "precision", "ns", "Specify the format of the timestamp:  rfc3339, h, m, s, ms, u or ns.")
+	// c.fs.Func("export", "Export openGemini data", func(flagValue &config.Export) error {
+	//     var err error
+	//     pause, err = time.ParseDuration(flagValue)
+	//     return err
+	// })
 }
 
 func (c *CompatibleCommand) Usage() {
